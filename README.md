@@ -52,6 +52,9 @@ clipveil tries to paste, macOS will prompt — or add it manually:
 Without this, detection and the dialog still work, but the final paste keystroke
 is silently dropped by macOS.
 
+clipveil checks this at startup and prints a warning if the permission is
+missing, so you won't be left guessing why a paste didn't land.
+
 ## Usage
 
 ```sh

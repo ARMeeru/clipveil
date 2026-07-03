@@ -24,12 +24,14 @@ arboard = { version = "3", optional = true, default-features = false }
 rfd = { version = "0.15", optional = true }
 enigo = { version = "0.2", optional = true }
 global-hotkey = { version = "0.6", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
 core-foundation = { version = "0.9", optional = true }
 
 [features]
 default = ["agent"]
 clipboard = ["dep:arboard"]
-agent = ["clipboard", "dep:rfd", "dep:enigo", "dep:global-hotkey", "dep:core-foundation"]
+agent = ["clipboard", "dep:rfd", "dep:enigo", "dep:global-hotkey", "dep:objc2", "dep:objc2-app-kit", "dep:core-foundation"]
 
 [profile.release]
 opt-level = "z"

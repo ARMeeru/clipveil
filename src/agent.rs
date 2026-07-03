@@ -2,17 +2,21 @@
 //! a "Paste Plain / Paste Redacted" chooser before letting the paste through.
 //!
 //! Design notes (macOS specifics):
-//! * The global hotkey is a Carbon `RegisterEventHotKey`, which needs a running
-//!   CFRunLoop on the main thread to dispatch. We run that loop here.
-//! * The hotkey callback fires ON the main thread, which is exactly where AppKit
-//!   (the rfd dialog) and event synthesis must happen.
+//! * The global hotkey is a Carbon `RegisterEventHotKey`, whose events are
+//!   delivered to the *application* event target. A bare CLI process has no
+//!   application identity with the window server, so it would register the
+//!   hotkey but never receive events. We therefore promote the process to a
+//!   real (but dockless, `.Accessory`) NSApplication and run the Cocoa event
+//!   loop, which pumps the Carbon hotkey events to global-hotkey's handler.
+//! * The hotkey callback fires ON the main thread, which is exactly where
+//!   AppKit (the rfd dialog) and event synthesis must happen.
 
 use std::thread;
 use std::time::Duration;
 
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
 
 use crate::detect;
@@ -24,28 +28,71 @@ const FOCUS_SETTLE: Duration = Duration::from_millis(150);
 /// Delay before restoring the original clipboard after a redacted paste.
 const RESTORE_DELAY: Duration = Duration::from_millis(250);
 
+/// Ask macOS whether this process may synthesize input (Accessibility). Passing
+/// the prompt option surfaces the system "grant access" dialog the first time.
+#[cfg(target_os = "macos")]
+fn accessibility_trusted() -> bool {
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+    use core_foundation::string::{CFString, CFStringRef};
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+        static kAXTrustedCheckOptionPrompt: CFStringRef;
+    }
+
+    unsafe {
+        let key = CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt);
+        let value = CFBoolean::true_value();
+        let dict = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
+        AXIsProcessTrustedWithOptions(dict.as_concrete_TypeRef())
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub fn run() -> Result<(), String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+
+    let mtm = MainThreadMarker::new().ok_or("clipveil agent must run on the main thread")?;
+    let app = NSApplication::sharedApplication(mtm);
+    // Dockless background app that can still own the global hotkey and dialogs.
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+
+    if !accessibility_trusted() {
+        eprintln!("clipveil: Accessibility permission is not granted yet.");
+        eprintln!("          Detection and the dialog work, but the paste keystroke will be dropped.");
+        eprintln!("          Grant it in System Settings > Privacy & Security > Accessibility");
+        eprintln!("          (enable the terminal/app you launch clipveil from), then restart clipveil.");
+    }
+
     let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
-    // Cmd+Shift+V. SUPER maps to Command on macOS.
     let hotkey = HotKey::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyV);
     manager
         .register(hotkey)
         .map_err(|e| format!("could not register Cmd+Shift+V: {e}"))?;
-
     let target_id = hotkey.id();
 
-    // Fires on the main thread while the run loop below is pumping.
+    // Fires on the main thread while the Cocoa run loop below is pumping.
     GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-        if event.id == target_id
-            && event.state == global_hotkey::HotKeyState::Pressed
-        {
+        if event.id == target_id && event.state == HotKeyState::Pressed {
             handle_smart_paste();
         }
     }));
 
     eprintln!("clipveil: watching Cmd+Shift+V. Press Ctrl+C to quit.");
-    run_loop();
+    // Runs the Cocoa event loop; blocks until the process is signalled.
+    // `manager` stays in scope for the whole run, keeping the hotkey registered.
+    app.run();
+    drop(manager);
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn run() -> Result<(), String> {
+    Err("clipveil's agent is only supported on macOS".into())
 }
 
 /// Core flow for one Cmd+Shift+V press.
@@ -66,7 +113,6 @@ fn handle_smart_paste() {
 
     match ask_user(&clip) {
         PasteChoice::Plain => {
-            // Clipboard already holds the real value; just paste.
             thread::sleep(FOCUS_SETTLE);
             let _ = paste::send_cmd_v();
         }
@@ -120,20 +166,5 @@ fn ask_user(clip: &str) -> PasteChoice {
         MessageDialogResult::Custom(label) if label == "Paste Redacted" => PasteChoice::Redacted,
         MessageDialogResult::Custom(label) if label == "Paste Plain" => PasteChoice::Plain,
         _ => PasteChoice::Cancel,
-    }
-}
-
-/// Run the main-thread CFRunLoop so the Carbon hotkey can dispatch.
-#[cfg(target_os = "macos")]
-fn run_loop() {
-    use core_foundation::runloop::CFRunLoop;
-    CFRunLoop::run_current();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn run_loop() {
-    // Non-macOS fallback: block forever; global-hotkey has its own backend loop.
-    loop {
-        thread::sleep(Duration::from_secs(3600));
     }
 }

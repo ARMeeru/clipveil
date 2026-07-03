@@ -310,6 +310,8 @@ dependencies = [
  "core-foundation",
  "enigo",
  "global-hotkey",
+ "objc2 0.6.4",
+ "objc2-app-kit",
  "once_cell",
  "regex",
  "rfd",
