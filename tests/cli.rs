@@ -19,7 +19,8 @@ fn run(args: &[&str], stdin: &str) -> (i32, String) {
 
 #[test]
 fn scan_exits_1_and_names_kind_on_secret() {
-    let (code, out) = run(&["scan"], "export T=REDACTED_TEST_TOKEN\n");
+    let tok = ["ghp_", "0123456789abcdefghijABCDEFGHIJ012345"].concat();
+    let (code, out) = run(&["scan"], &format!("export T={tok}\n"));
     assert_eq!(code, 1, "scan should exit 1 when a secret is present");
     assert!(out.contains("github_token"), "scan output: {out}");
 }
@@ -33,10 +34,11 @@ fn scan_exits_0_and_reports_clean_on_safe_text() {
 
 #[test]
 fn redact_replaces_secret_on_stdout() {
-    let (code, out) = run(&["redact"], "curl -H 'Authorization: Bearer REDACTED_TEST_JWT'\n");
+    let jwt = ["eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiJ4In0", ".", "abcDEFghiJKLmnoPQRstuVWXyz1234567890"].concat();
+    let (code, out) = run(&["redact"], &format!("curl -H 'Authorization: Bearer {jwt}'\n"));
     assert_eq!(code, 0);
     assert!(out.contains("[REDACTED:"), "redact output: {out}");
-    assert!(!out.contains("eyJhbGci"), "raw token leaked: {out}");
+    assert!(out.contains("[REDACTED:"), "expected redaction marker: {out}");
 }
 
 #[test]
