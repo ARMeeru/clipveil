@@ -19,7 +19,7 @@ use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
 
-use crate::detect;
+use clipveil::detect;
 use crate::paste;
 
 /// Delay before restoring the original clipboard after a redacted paste.

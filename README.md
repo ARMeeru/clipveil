@@ -163,10 +163,14 @@ correctness wins. 1.2 MB is the honest price.
 ## Development
 
 ```sh
-cargo test --no-default-features    # fast: detection core only
+cargo test                          # unit + integration (tests/) + CLI tests
+cargo test --no-default-features    # fast: detection core + corpus only
 cargo clippy --all-features -- -D warnings
 cargo build --release
 ```
+
+Tests live in `src/detect.rs` (unit), `tests/detection.rs` (detection corpus),
+and `tests/cli.rs` (end-to-end). See `QA_REPORT.md` for the coverage summary.
 
 ## License
 

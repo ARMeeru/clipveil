@@ -1,32 +1,36 @@
 # clipveil QA Report — v0.1.0 (2026-07-03)
 
-Automated QA over the detection engine via the `scan` / `redact` CLI, plus a
-manual sample set (`samples/secret-samples.txt`) for the GUI dialog flow.
+All checks are versioned in the repo and reproducible with a single command:
 
-## Summary
+```sh
+cargo test
+```
 
-**53 / 53 automated checks passed.**
+## Suite
 
-| Category | Cases | Result |
+| Location | Tests | Covers |
 |----------|-------|--------|
-| Positive detection (all token types) | 20 | all detected |
-| False-positive controls (UUID, git SHA, IP, prose, paths, base64) | 7 | all clean |
-| Edge cases (start/end spans, emoji, accents, CJK, overlap) | 6 | all pass, no panic |
-| Newer token types (Discord, Slack app, Google OAuth, Telegram, SendGrid) | 5 | added + covered |
-| Regression unit tests | 12 | pass |
+| `src/detect.rs` (unit) | 12 | pattern-level detection, overlap merge, label preference |
+| `tests/detection.rs` (integration) | 6 | full corpus over the public API (below) |
+| `tests/cli.rs` (end-to-end) | 4 | `scan`/`redact` via the built binary, exit codes, stdin |
 
-## UTF-8 safety
+The integration corpus (`tests/detection.rs`) asserts over:
 
-Redaction slices by byte offset. Verified that inputs mixing multi-byte
-characters (🔑 emoji, accented `café`, CJK 秘密) with secrets redact without
-panic and preserve surrounding text — regex operates in Unicode mode, so match
-boundaries always fall on valid character boundaries.
+- **25 positive cases** — every supported token type is detected and redacted.
+- **7 false-positive controls** — UUID, git SHA, IP, prose, file paths, plain
+  numbers, and a bare base64 blob all stay clean.
+- **UTF-8 edge cases** — 🔑 emoji, accented `café`, and CJK 秘密 adjacent to a
+  secret redact without panicking (byte-offset slicing stays on char
+  boundaries because regex runs in Unicode mode).
+- **Boundary spans** — secrets at the very start and end of input.
+- **Overlap** — a `Bearer` + JWT overlap collapses to a single redaction span.
+- **Large input** — a token embedded in a multi-thousand-line log is still found.
 
 ## Performance
 
-A 196 KB clipboard payload with an embedded token scans in **~8 ms**. The lazy
-DFA is linear in input size, so large pastes stay imperceptible (this is the
-central reason `regex` was chosen over `regex-lite` — see README Footprint).
+A 196 KB payload with an embedded token scans in **~8 ms**. The lazy DFA is
+linear in input size, so large pastes stay imperceptible — the reason `regex`
+was chosen over `regex-lite` (see README → Footprint).
 
 ## Coverage
 
@@ -35,10 +39,14 @@ Google API key, Google OAuth, Slack (bot, app, webhook), Discord bot token,
 Telegram bot token, SendGrid, npm, JWT, Bearer headers, PEM private-key blocks,
 and generic `password=` / `token=` / `api_key=` assignments.
 
-## Known limitations
+## Manual GUI check
 
-- Regex detection targets common, high-risk shapes; it is a safety net, not a
-  guarantee. The Paste Plain / Paste Redacted dialog is the human backstop.
-- The GUI dialog flow (button clicks) is validated manually via the sample file;
-  it cannot be automated here because macOS hides the agent's window from
-  screen-capture tooling (a deliberate privacy property).
+The Paste Plain / Paste Redacted dialog is verified by hand using
+`samples/secret-samples.txt` (all fake values). It can't be automated here
+because macOS hides the agent's window from screen-capture tooling — a
+deliberate privacy property, and the reason clipveil's own dialog is invisible
+to automation.
+
+## Result
+
+**Full suite passes: 22/22.** Run `cargo test` to reproduce.

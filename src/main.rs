@@ -1,6 +1,6 @@
 //! clipveil — veil secrets in your clipboard before you paste them.
 
-mod detect;
+use clipveil::detect;
 
 #[cfg(feature = "clipboard")]
 mod paste;
