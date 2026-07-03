@@ -15,12 +15,12 @@ use std::thread;
 use std::time::Duration;
 
 use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
+    hotkey::{Code, HotKey, Modifiers},
 };
 
-use clipveil::detect;
 use crate::paste;
+use clipveil::detect;
 
 /// Delay before restoring the original clipboard after a redacted paste.
 const RESTORE_DELAY: Duration = Duration::from_millis(250);
@@ -60,9 +60,13 @@ pub fn run() -> Result<(), String> {
 
     if !accessibility_trusted() {
         eprintln!("clipveil: Accessibility permission is not granted yet.");
-        eprintln!("          Detection and the dialog work, but the paste keystroke will be dropped.");
+        eprintln!(
+            "          Detection and the dialog work, but the paste keystroke will be dropped."
+        );
         eprintln!("          Grant it in System Settings > Privacy & Security > Accessibility");
-        eprintln!("          (enable the terminal/app you launch clipveil from), then restart clipveil.");
+        eprintln!(
+            "          (enable the terminal/app you launch clipveil from), then restart clipveil."
+        );
     }
 
     let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
@@ -142,7 +146,13 @@ fn ask_user(clip: &str) -> PasteChoice {
     let summary = detect::summary(clip);
     let kinds: Vec<String> = summary
         .iter()
-        .map(|(k, n)| if *n > 1 { format!("{k} ×{n}") } else { k.to_string() })
+        .map(|(k, n)| {
+            if *n > 1 {
+                format!("{k} ×{n}")
+            } else {
+                k.to_string()
+            }
+        })
         .collect();
 
     let body = format!(

@@ -1,5 +1,11 @@
 # clipveil
 
+[![CI](https://github.com/ARMeeru/clipveil/actions/workflows/ci.yml/badge.svg)](https://github.com/ARMeeru/clipveil/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ARMeeru/clipveil)](https://github.com/ARMeeru/clipveil/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+![Platform: macOS arm64](https://img.shields.io/badge/platform-macOS%20arm64-lightgrey)
+
+
 **Veil secrets in your clipboard before you paste them.**
 
 A tiny (~1.2 MB, single static binary), zero-runtime macOS agent for people who copy from a terminal and

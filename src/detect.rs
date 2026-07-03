@@ -35,17 +35,26 @@ static PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         // Stripe secret/restricted keys
         ("stripe_key", r"[rs]k_(?:live|test)_[0-9a-zA-Z]{16,}"),
         // AWS access key IDs
-        ("aws_access_key", r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b"),
+        (
+            "aws_access_key",
+            r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b",
+        ),
         // Google API key
         ("google_api_key", r"AIza[0-9A-Za-z_\-]{35}"),
         // Slack tokens
         ("slack_token", r"xox[baprs]-[0-9A-Za-z\-]{10,}"),
         // Slack incoming webhook
-        ("slack_webhook", r"https://hooks\.slack\.com/services/[A-Za-z0-9+/]{40,}"),
+        (
+            "slack_webhook",
+            r"https://hooks\.slack\.com/services/[A-Za-z0-9+/]{40,}",
+        ),
         // npm token
         ("npm_token", r"npm_[0-9A-Za-z]{36}"),
         // Discord bot token (id.timestamp.hmac)
-        ("discord_token", r"[MNO][A-Za-z0-9_\-]{23,25}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,38}"),
+        (
+            "discord_token",
+            r"[MNO][A-Za-z0-9_\-]{23,25}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,38}",
+        ),
         // Slack app-level token
         ("slack_app_token", r"xapp-[0-9A-Za-z\-]{10,}"),
         // Google OAuth access token
@@ -53,9 +62,15 @@ static PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         // Telegram bot token
         ("telegram_token", r"[0-9]{8,10}:[A-Za-z0-9_\-]{35}"),
         // SendGrid API key
-        ("sendgrid_key", r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{40,}"),
+        (
+            "sendgrid_key",
+            r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{40,}",
+        ),
         // JSON Web Token
-        ("jwt", r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
+        (
+            "jwt",
+            r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",
+        ),
         // Authorization: Bearer <token>
         ("bearer_token", r"(?i)bearer\s+[A-Za-z0-9._~+/\-]{20,}=*"),
         // Generic key=value secret assignments
@@ -96,7 +111,11 @@ pub fn scan(text: &str) -> Vec<Finding> {
     let mut raw: Vec<Finding> = Vec::new();
     for (kind, re) in PATTERNS.iter() {
         for m in re.find_iter(text) {
-            raw.push(Finding { kind, start: m.start(), end: m.end() });
+            raw.push(Finding {
+                kind,
+                start: m.start(),
+                end: m.end(),
+            });
         }
     }
     // Earliest first; for equal starts, longest first.
@@ -118,7 +137,11 @@ pub fn scan(text: &str) -> Vec<Finding> {
             }
             j += 1;
         }
-        merged.push(Finding { kind: best.kind, start: cl_start, end: cl_end });
+        merged.push(Finding {
+            kind: best.kind,
+            start: cl_start,
+            end: cl_end,
+        });
         i = j;
     }
     merged
@@ -172,7 +195,10 @@ mod tests {
 
     #[test]
     fn detects_github_classic_token() {
-        let t = format!("export TOKEN={}", asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"]));
+        let t = format!(
+            "export TOKEN={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
         assert!(has_secret(&t));
         assert_eq!(scan(&t).len(), 1);
         assert_eq!(scan(&t)[0].kind, "github_token");
@@ -180,7 +206,10 @@ mod tests {
 
     #[test]
     fn detects_github_fine_grained_pat() {
-        let t = asm(&["github_pat_", "11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP"]);
+        let t = asm(&[
+            "github_pat_",
+            "11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP",
+        ]);
         assert!(has_secret(&t));
     }
 
@@ -192,14 +221,34 @@ mod tests {
 
     #[test]
     fn detects_openai_key() {
-        let t = format!("OPENAI_API_KEY={}", asm(&["sk-proj-", "abcdefghijklmnopqrstuvwxyz1234567890"]));
-        assert!(scan(&t).iter().any(|x| x.kind == "openai_key" || x.kind == "generic_secret"));
+        let t = format!(
+            "OPENAI_API_KEY={}",
+            asm(&["sk-proj-", "abcdefghijklmnopqrstuvwxyz1234567890"])
+        );
+        assert!(
+            scan(&t)
+                .iter()
+                .any(|x| x.kind == "openai_key" || x.kind == "generic_secret")
+        );
     }
 
     #[test]
     fn detects_jwt() {
-        let t = format!("auth {}", asm(&["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"]));
-        assert!(scan(&t).iter().any(|x| x.kind == "jwt" || x.kind == "bearer_token"));
+        let t = format!(
+            "auth {}",
+            asm(&[
+                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+                ".",
+                "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+                ".",
+                "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            ])
+        );
+        assert!(
+            scan(&t)
+                .iter()
+                .any(|x| x.kind == "jwt" || x.kind == "bearer_token")
+        );
     }
 
     #[test]
@@ -216,7 +265,10 @@ mod tests {
 
     #[test]
     fn redacts_and_preserves_surrounding_text() {
-        let t = format!("run with {} now", asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"]));
+        let t = format!(
+            "run with {} now",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
         assert_eq!(redact(&t), "run with [REDACTED:github_token] now");
     }
 
@@ -229,7 +281,16 @@ mod tests {
 
     #[test]
     fn overlapping_bearer_and_jwt_merge_to_one_span() {
-        let t = format!("Authorization: Bearer {}", asm(&["eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".", "abcDEFghiJKLmnoPQRstuVWXyz1234567890"]));
+        let t = format!(
+            "Authorization: Bearer {}",
+            asm(&[
+                "eyJhbGciOiJIUzI1NiJ9",
+                ".",
+                "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+                ".",
+                "abcDEFghiJKLmnoPQRstuVWXyz1234567890"
+            ])
+        );
         assert_eq!(scan(&t).len(), 1);
         assert_eq!(redact(&t).matches("[REDACTED").count(), 1);
     }
@@ -250,14 +311,43 @@ mod tests {
     #[test]
     fn detects_newer_token_types() {
         let cases: [(String, &str); 5] = [
-            (asm(&["MTk4NjIyNDgzNDcxOTI1MjQ4", ".", "GBTk9x", ".", "abcdefghijklmnopqrstuvwxyzABCDEF012ab"]), "discord_token"),
-            (asm(&["xapp-", "1-A0123ABCD-1234567890-abcdef0123456789"]), "slack_app_token"),
-            (asm(&["ya29.", "a0AfH6SMBxExampleExampleExampleExampleExample"]), "google_oauth"),
-            (asm(&["1234567890", ":", "AAExampleExampleExampleExampleExample01"]), "telegram_token"),
-            (asm(&["SG.", "abcdefghijklmnopqrstuv", ".", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"]), "sendgrid_key"),
+            (
+                asm(&[
+                    "MTk4NjIyNDgzNDcxOTI1MjQ4",
+                    ".",
+                    "GBTk9x",
+                    ".",
+                    "abcdefghijklmnopqrstuvwxyzABCDEF012ab",
+                ]),
+                "discord_token",
+            ),
+            (
+                asm(&["xapp-", "1-A0123ABCD-1234567890-abcdef0123456789"]),
+                "slack_app_token",
+            ),
+            (
+                asm(&["ya29.", "a0AfH6SMBxExampleExampleExampleExampleExample"]),
+                "google_oauth",
+            ),
+            (
+                asm(&["1234567890", ":", "AAExampleExampleExampleExampleExample01"]),
+                "telegram_token",
+            ),
+            (
+                asm(&[
+                    "SG.",
+                    "abcdefghijklmnopqrstuv",
+                    ".",
+                    "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ",
+                ]),
+                "sendgrid_key",
+            ),
         ];
         for (tok, kind) in &cases {
-            assert!(scan(tok).iter().any(|f| f.kind == *kind), "{kind} not detected");
+            assert!(
+                scan(tok).iter().any(|f| f.kind == *kind),
+                "{kind} not detected"
+            );
         }
     }
 

@@ -12,9 +12,17 @@ fn run(args: &[&str], stdin: &str) -> (i32, String) {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn clipveil");
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     let out = child.wait_with_output().unwrap();
-    (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).into_owned())
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+    )
 }
 
 #[test]
@@ -34,11 +42,24 @@ fn scan_exits_0_and_reports_clean_on_safe_text() {
 
 #[test]
 fn redact_replaces_secret_on_stdout() {
-    let jwt = ["eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiJ4In0", ".", "abcDEFghiJKLmnoPQRstuVWXyz1234567890"].concat();
-    let (code, out) = run(&["redact"], &format!("curl -H 'Authorization: Bearer {jwt}'\n"));
+    let jwt = [
+        "eyJhbGciOiJIUzI1NiJ9",
+        ".",
+        "eyJzdWIiOiJ4In0",
+        ".",
+        "abcDEFghiJKLmnoPQRstuVWXyz1234567890",
+    ]
+    .concat();
+    let (code, out) = run(
+        &["redact"],
+        &format!("curl -H 'Authorization: Bearer {jwt}'\n"),
+    );
     assert_eq!(code, 0);
     assert!(out.contains("[REDACTED:"), "redact output: {out}");
-    assert!(out.contains("[REDACTED:"), "expected redaction marker: {out}");
+    assert!(
+        out.contains("[REDACTED:"),
+        "expected redaction marker: {out}"
+    );
 }
 
 #[test]
