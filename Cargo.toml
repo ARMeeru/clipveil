@@ -1,10 +1,10 @@
 [package]
 name = "clipveil"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "A tiny macOS agent that veils secrets in your clipboard before you paste them."
 license = "MIT"
-repository = "https://github.com/asifur/clipveil"
+repository = "https://github.com/ARMeeru/clipveil"
 readme = "README.md"
 keywords = ["clipboard", "security", "secrets", "redaction", "macos"]
 categories = ["command-line-utilities"]

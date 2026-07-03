@@ -2,7 +2,7 @@
 
 **Veil secrets in your clipboard before you paste them.**
 
-A tiny (~1 MB), zero-runtime macOS agent for people who copy from a terminal and
+A tiny (~1.2 MB, single static binary), zero-runtime macOS agent for people who copy from a terminal and
 paste into an LLM, a chat, or a doc — and occasionally forget that the thing they
 just copied contains a live GitHub token, AWS key, or private key.
 
@@ -123,6 +123,35 @@ Cmd+Shift+V ──▶ read clipboard ──▶ detect::has_secret?
   successive pastes may need a beat.
 - Regex detection can't catch every possible secret shape. It covers the common,
   high-risk ones. Treat it as a safety net, not a guarantee.
+
+## Footprint
+
+The release binary is ~1.2 MB. Where it goes, and why:
+
+| Chunk | ~Size | Notes |
+|-------|-------|-------|
+| Rust `std` | ~240 KB | Baseline for any std binary; unavoidable without `no_std`. |
+| `regex` engine + Unicode tables | ~800 KB | Deliberate — see below. |
+| clipveil's own code | ~11 KB | The detection core + agent. |
+| macOS glue (global-hotkey, rfd, enigo, objc2) | ~25 KB | All the OS plumbing, combined. |
+
+### Why `regex` and not `regex-lite`
+
+`regex-lite` cuts the binary by 63% (to ~430 KB). It was rejected on measurement,
+not principle. Benchmarked over the full pattern set on a ~4 KB clipboard sample:
+
+| Engine | Time per scan | Binary |
+|--------|---------------|--------|
+| `regex` (lazy DFA) | **~10 µs** | ~1.2 MB |
+| `regex-lite` (backtracking) | ~1105 µs (**108× slower**) | ~430 KB |
+
+`regex-lite` backtracks, so it is not only ~100× slower here but can degrade
+badly on large clipboard payloads — and clipboard size is unbounded. `regex`'s
+DFA runs in linear time regardless of input, keeping every Cmd+Shift+V
+imperceptible. ASCII-stripping `regex` to drop the Unicode tables was also
+rejected: it forces byte-mode matching that can split a multi-byte UTF-8
+character mid-token and panic the redactor. For a security tool, predictable
+correctness wins. 1.2 MB is the honest price.
 
 ## Development
 

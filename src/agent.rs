@@ -22,9 +22,6 @@ use global_hotkey::{
 use crate::detect;
 use crate::paste;
 
-/// Small delay so focus can return to the target app after the dialog closes
-/// (and before we synthesize the paste).
-const FOCUS_SETTLE: Duration = Duration::from_millis(150);
 /// Delay before restoring the original clipboard after a redacted paste.
 const RESTORE_DELAY: Duration = Duration::from_millis(250);
 
@@ -38,7 +35,7 @@ fn accessibility_trusted() -> bool {
     use core_foundation::string::{CFString, CFStringRef};
 
     #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
         static kAXTrustedCheckOptionPrompt: CFStringRef;
     }
@@ -107,20 +104,21 @@ fn handle_smart_paste() {
 
     // Nothing sensitive — behave like an ordinary paste.
     if clip.is_empty() || !detect::has_secret(&clip) {
+        paste::wait_for_modifiers_released();
         let _ = paste::send_cmd_v();
         return;
     }
 
     match ask_user(&clip) {
         PasteChoice::Plain => {
-            thread::sleep(FOCUS_SETTLE);
+            paste::wait_for_modifiers_released();
             let _ = paste::send_cmd_v();
         }
         PasteChoice::Redacted => {
             let redacted = detect::redact(&clip);
             let original = clip.clone();
             if paste::write_clipboard(&redacted).is_ok() {
-                thread::sleep(FOCUS_SETTLE);
+                paste::wait_for_modifiers_released();
                 let _ = paste::send_cmd_v();
                 // Put the real value back so legitimate uses still work.
                 thread::sleep(RESTORE_DELAY);
