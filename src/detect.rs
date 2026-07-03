@@ -44,6 +44,16 @@ static PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         ("slack_webhook", r"https://hooks\.slack\.com/services/[A-Za-z0-9+/]{40,}"),
         // npm token
         ("npm_token", r"npm_[0-9A-Za-z]{36}"),
+        // Discord bot token (id.timestamp.hmac)
+        ("discord_token", r"[MNO][A-Za-z0-9_\-]{23,25}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,38}"),
+        // Slack app-level token
+        ("slack_app_token", r"xapp-[0-9A-Za-z\-]{10,}"),
+        // Google OAuth access token
+        ("google_oauth", r"ya29\.[A-Za-z0-9_\-]{20,}"),
+        // Telegram bot token
+        ("telegram_token", r"[0-9]{8,10}:[A-Za-z0-9_\-]{35}"),
+        // SendGrid API key
+        ("sendgrid_key", r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{40,}"),
         // JSON Web Token
         ("jwt", r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
         // Authorization: Bearer <token>
@@ -228,6 +238,21 @@ mod tests {
         assert!(!out.contains("ghp_"));
         assert!(!out.contains("REDACTED_TEST_TOKEN"));
         assert_eq!(out.matches("[REDACTED").count(), 2);
+    }
+
+    #[test]
+    fn detects_newer_token_types() {
+        let cases = [
+            ("REDACTED_TEST_TOKEN", "discord_token"),
+            ("REDACTED_TEST_TOKEN", "slack_app_token"),
+            ("REDACTED_TEST_TOKEN", "google_oauth"),
+            ("REDACTED_TEST_TOKENle01", "telegram_token"),
+            ("REDACTED_TEST_TOKEN", "sendgrid_key"),
+        ];
+        for (tok, kind) in cases {
+            let found = scan(tok);
+            assert!(found.iter().any(|f| f.kind == kind), "{kind} not detected in {tok}");
+        }
     }
 
     #[test]

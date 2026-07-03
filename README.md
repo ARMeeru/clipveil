@@ -55,6 +55,12 @@ is silently dropped by macOS.
 clipveil checks this at startup and prints a warning if the permission is
 missing, so you won't be left guessing why a paste didn't land.
 
+**Note on ad-hoc signing:** the bundle is ad-hoc signed, so each rebuild gets a
+new code hash and macOS treats it as a new identity — you'll need to re-grant
+Accessibility after rebuilding. For an install-once setup this is a one-time
+step. If you iterate often, sign with a stable self-signed code-signing
+certificate so grants persist across rebuilds.
+
 ## Usage
 
 ```sh
@@ -86,9 +92,10 @@ launchctl load ~/Library/LaunchAgents/com.clipveil.agent.plist
 ## What it detects
 
 GitHub tokens (classic + fine-grained PAT), GitLab PATs, OpenAI keys, Stripe
-keys, AWS access key IDs, Google API keys, Slack tokens & webhooks, npm tokens,
-JWTs, `Authorization: Bearer` headers, PEM private-key blocks, and generic
-`password=` / `token=` / `api_key=` assignments.
+keys, AWS access key IDs, Google API keys, Google OAuth tokens, Slack tokens
+(bot, app & webhook), Discord bot tokens, Telegram bot tokens, SendGrid keys,
+npm tokens, JWTs, `Authorization: Bearer` headers, PEM private-key blocks, and
+generic `password=` / `token=` / `api_key=` assignments.
 
 Detection favors safety over precision: it would rather flag a false positive
 (which you dismiss with **Paste Plain**) than leak a real secret. Patterns live
