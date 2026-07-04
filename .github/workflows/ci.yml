@@ -12,13 +12,23 @@ jobs:
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Audit dependencies
-        uses: rustsec/audit-check@v2.0.0
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # RUSTSEC-2026-0194: Linux-only quick-xml transitive dependency via rfd;
+          # not in the macOS build and the XML parsing path is unreachable. Revisit when rfd bumps.
+          # RUSTSEC-2026-0195: Linux-only quick-xml transitive dependency via rfd;
+          # not in the macOS build and the XML parsing path is unreachable. Revisit when rfd bumps.
+          # RUSTSEC-2026-0186: Linux-only memmap2 transitive dependency via enigo;
+          # not in the macOS build and the affected mmap paths are unreachable. Revisit when enigo bumps.
+          ignore: RUSTSEC-2026-0194,RUSTSEC-2026-0195,RUSTSEC-2026-0186
 
   build-and-test:
     name: fmt · clippy · test
