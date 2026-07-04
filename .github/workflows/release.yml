@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and sign app
+        run: ./dist/build-app.sh
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          mkdir -p release
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/clipveil.app \
+            "release/clipveil-${VERSION}-macos-arm64.zip"
+          cp target/release/clipveil \
+            "release/clipveil-${VERSION}-macos-arm64"
+
+          cd release
+          shasum -a 256 \
+            "clipveil-${VERSION}-macos-arm64.zip" \
+            "clipveil-${VERSION}-macos-arm64" \
+            > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "clipveil $GITHUB_REF_NAME" \
+            --generate-notes \
+            "release/clipveil-${VERSION}-macos-arm64.zip" \
+            "release/clipveil-${VERSION}-macos-arm64" \
+            release/SHA256SUMS.txt
