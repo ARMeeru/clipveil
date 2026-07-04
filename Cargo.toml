@@ -26,7 +26,7 @@ enigo = { version = "0.2", optional = true }
 global-hotkey = { version = "0.6", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
-core-foundation = { version = "0.9", optional = true }
+core-foundation = { version = "0.10", optional = true }
 
 [features]
 default = ["agent"]
