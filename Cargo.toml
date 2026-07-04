@@ -22,7 +22,7 @@ arboard = { version = "3", optional = true, default-features = false }
 
 # Agent-only GUI/automation stack
 rfd = { version = "0.17", optional = true }
-enigo = { version = "0.2", optional = true }
+enigo = { version = "0.6", optional = true }
 global-hotkey = { version = "0.8", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
