@@ -8,9 +8,6 @@ mod paste;
 #[cfg(feature = "agent")]
 mod agent;
 
-#[cfg(feature = "agent")]
-mod agent_plan;
-
 use std::io::{IsTerminal, Read};
 
 fn main() {

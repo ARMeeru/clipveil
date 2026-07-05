@@ -18,11 +18,11 @@ use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
 };
 
-use crate::{
+use crate::paste;
+use clipveil::{
     agent_plan::{self, Action, PasteChoice},
-    paste,
+    detect,
 };
-use clipveil::detect;
 
 /// Ask macOS whether this process may synthesize input (Accessibility). Passing
 /// the prompt option surfaces the system "grant access" dialog the first time.

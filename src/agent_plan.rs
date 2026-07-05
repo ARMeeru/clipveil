@@ -2,19 +2,19 @@
 
 use std::time::Duration;
 
-use clipveil::detect;
+use crate::detect;
 
 const RESTORE_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PasteChoice {
+pub enum PasteChoice {
     Plain,
     Redacted,
     Cancel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Action {
+pub enum Action {
     WaitForModifiersReleased,
     SetClipboard(String),
     SendPaste,
@@ -22,11 +22,11 @@ pub(crate) enum Action {
     Restore(String),
 }
 
-pub(crate) fn needs_prompt(clipboard: &str) -> bool {
+pub fn needs_prompt(clipboard: &str) -> bool {
     !clipboard.is_empty() && detect::has_secret(clipboard)
 }
 
-pub(crate) fn plan(clipboard: &str, choice: PasteChoice) -> Vec<Action> {
+pub fn plan(clipboard: &str, choice: PasteChoice) -> Vec<Action> {
     if !needs_prompt(clipboard) {
         return vec![Action::WaitForModifiersReleased, Action::SendPaste];
     }
