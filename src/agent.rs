@@ -12,18 +12,17 @@
 //!   AppKit (the rfd dialog) and event synthesis must happen.
 
 use std::thread;
-use std::time::Duration;
 
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{Code, HotKey, Modifiers},
 };
 
-use crate::paste;
+use crate::{
+    agent_plan::{self, Action, PasteChoice},
+    paste,
+};
 use clipveil::detect;
-
-/// Delay before restoring the original clipboard after a redacted paste.
-const RESTORE_DELAY: Duration = Duration::from_millis(250);
 
 /// Ask macOS whether this process may synthesize input (Accessibility). Passing
 /// the prompt option surfaces the system "grant access" dialog the first time.
@@ -106,37 +105,33 @@ fn handle_smart_paste() {
         }
     };
 
-    // Nothing sensitive — behave like an ordinary paste.
-    if clip.is_empty() || !detect::has_secret(&clip) {
-        paste::wait_for_modifiers_released();
-        let _ = paste::send_cmd_v();
-        return;
-    }
+    let choice = if agent_plan::needs_prompt(&clip) {
+        ask_user(&clip)
+    } else {
+        PasteChoice::Plain
+    };
+    execute(agent_plan::plan(&clip, choice));
+}
 
-    match ask_user(&clip) {
-        PasteChoice::Plain => {
-            paste::wait_for_modifiers_released();
-            let _ = paste::send_cmd_v();
-        }
-        PasteChoice::Redacted => {
-            let redacted = detect::redact(&clip);
-            let original = clip.clone();
-            if paste::write_clipboard(&redacted).is_ok() {
-                paste::wait_for_modifiers_released();
+/// Execute a side-effect-free plan against the macOS clipboard and input APIs.
+fn execute(actions: Vec<Action>) {
+    for action in actions {
+        match action {
+            Action::WaitForModifiersReleased => paste::wait_for_modifiers_released(),
+            Action::SetClipboard(text) => {
+                if paste::write_clipboard(&text).is_err() {
+                    return;
+                }
+            }
+            Action::SendPaste => {
                 let _ = paste::send_cmd_v();
-                // Put the real value back so legitimate uses still work.
-                thread::sleep(RESTORE_DELAY);
+            }
+            Action::Wait(delay) => thread::sleep(delay),
+            Action::Restore(original) => {
                 let _ = paste::write_clipboard(&original);
             }
         }
-        PasteChoice::Cancel => { /* do nothing */ }
     }
-}
-
-enum PasteChoice {
-    Plain,
-    Redacted,
-    Cancel,
 }
 
 /// Native two-button chooser describing what was found.
