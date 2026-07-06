@@ -1,5 +1,6 @@
-//! Resident agent: binds Cmd+Shift+V, and on a secret-carrying clipboard shows
-//! a "Paste Plain / Paste Redacted" chooser before letting the paste through.
+//! Resident agent: binds a configurable hotkey (default Cmd+Shift+V), and on a
+//! secret-carrying clipboard shows a "Paste Plain / Paste Redacted" chooser
+//! before letting the paste through.
 //!
 //! Design notes (macOS specifics):
 //! * The global hotkey is a Carbon `RegisterEventHotKey`, whose events are
@@ -21,7 +22,8 @@ use global_hotkey::{
 use crate::paste;
 use clipveil::{
     agent_plan::{self, Action, PasteChoice},
-    detect,
+    config,
+    detect::Scanner,
 };
 
 /// Ask macOS whether this process may synthesize input (Accessibility). Passing
@@ -47,6 +49,21 @@ fn accessibility_trusted() -> bool {
     }
 }
 
+// ── Per-process singleton state ────────────────────────────────────────────
+// The hotkey callback receives no context, so we store the config-derived
+// values in a thread-local that is written once before the event loop starts.
+
+std::thread_local! {
+    static AGENT_STATE: std::cell::RefCell<Option<AgentState>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+struct AgentState {
+    scanner: Scanner,
+    settle_ms: u64,
+    modifier_timeout_ms: u64,
+}
+
 #[cfg(target_os = "macos")]
 pub fn run() -> Result<(), String> {
     use objc2::MainThreadMarker;
@@ -68,21 +85,40 @@ pub fn run() -> Result<(), String> {
         );
     }
 
+    // ── Load configuration ────────────────────────────────────────────
+    let cfg = config::load();
+    let (mods, code) = config::parse_hotkey(&cfg.hotkey).unwrap_or_else(|e| {
+        eprintln!("clipveil: warning: {e} — falling back to cmd+shift+v");
+        (Modifiers::SUPER | Modifiers::SHIFT, Code::KeyV)
+    });
+
+    let scanner = Scanner::new(Some(&cfg.detection));
+
+    AGENT_STATE.with(|s| {
+        *s.borrow_mut() = Some(AgentState {
+            scanner,
+            settle_ms: cfg.paste_settle_ms,
+            modifier_timeout_ms: cfg.modifier_wait_timeout_ms,
+        });
+    });
+
+    // ── Hotkey ────────────────────────────────────────────────────────
     let manager = GlobalHotKeyManager::new().map_err(|e| e.to_string())?;
-    let hotkey = HotKey::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyV);
+    let hotkey = HotKey::new(Some(mods), code);
+    let id = hotkey.id();
     manager
         .register(hotkey)
-        .map_err(|e| format!("could not register Cmd+Shift+V: {e}"))?;
-    let target_id = hotkey.id();
+        .map_err(|e| format!("could not register hotkey: {e}"))?;
 
     // Fires on the main thread while the Cocoa run loop below is pumping.
     GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-        if event.id == target_id && event.state == HotKeyState::Pressed {
+        if event.id == id && event.state == HotKeyState::Pressed {
             handle_smart_paste();
         }
     }));
 
-    eprintln!("clipveil: watching Cmd+Shift+V. Press Ctrl+C to quit.");
+    let desc = hotkey_desc(mods, code);
+    eprintln!("clipveil: watching {desc}. Press Ctrl+C to quit.");
     // Runs the Cocoa event loop; blocks until the process is signalled.
     // `manager` stays in scope for the whole run, keeping the hotkey registered.
     app.run();
@@ -95,7 +131,7 @@ pub fn run() -> Result<(), String> {
     Err("clipveil's agent is only supported on macOS".into())
 }
 
-/// Core flow for one Cmd+Shift+V press.
+/// Core flow for one hotkey press.
 fn handle_smart_paste() {
     let clip = match paste::read_clipboard() {
         Ok(c) => c,
@@ -105,12 +141,19 @@ fn handle_smart_paste() {
         }
     };
 
-    let choice = if agent_plan::needs_prompt(&clip) {
-        ask_user(&clip)
-    } else {
-        PasteChoice::Plain
-    };
-    execute(agent_plan::plan(&clip, choice));
+    let (_choice, actions) = AGENT_STATE.with(|s| {
+        let state = s.borrow();
+        let state = state.as_ref().expect("agent state not initialised");
+        let choice = if agent_plan::needs_prompt(&state.scanner, &clip) {
+            ask_user(&clip, &state.scanner)
+        } else {
+            PasteChoice::Plain
+        };
+        let actions = agent_plan::plan(&state.scanner, &clip, choice, state.settle_ms);
+        (choice, actions)
+    });
+
+    execute(actions);
 }
 
 /// Execute a side-effect-free plan against the macOS clipboard and input APIs.
@@ -120,7 +163,15 @@ fn execute(actions: Vec<Action>) {
     let mut redacted_change_count = None;
     for action in actions {
         match action {
-            Action::WaitForModifiersReleased => paste::wait_for_modifiers_released(),
+            Action::WaitForModifiersReleased => {
+                let timeout = AGENT_STATE.with(|s| {
+                    s.borrow()
+                        .as_ref()
+                        .map(|st| st.modifier_timeout_ms)
+                        .unwrap_or(agent_plan::DEFAULT_MODIFIER_WAIT_TIMEOUT_MS)
+                });
+                paste::wait_for_modifiers_released(timeout);
+            }
             Action::SetClipboard(text) => {
                 if paste::write_clipboard(&text).is_err() {
                     return;
@@ -143,11 +194,31 @@ fn execute(actions: Vec<Action>) {
     }
 }
 
+/// Build a human-readable hotkey description for the startup banner.
+fn hotkey_desc(mods: Modifiers, code: Code) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if mods.contains(Modifiers::SUPER) {
+        parts.push("Cmd");
+    }
+    if mods.contains(Modifiers::SHIFT) {
+        parts.push("Shift");
+    }
+    if mods.contains(Modifiers::CONTROL) {
+        parts.push("Ctrl");
+    }
+    if mods.contains(Modifiers::ALT) {
+        parts.push("Opt");
+    }
+    let key_str = format!("{code:?}");
+    parts.push(&key_str);
+    parts.join("+")
+}
+
 /// Native two-button chooser describing what was found.
-fn ask_user(clip: &str) -> PasteChoice {
+fn ask_user(clip: &str, scanner: &Scanner) -> PasteChoice {
     use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 
-    let summary = detect::summary(clip);
+    let summary = scanner.summary(clip);
     let kinds: Vec<String> = summary
         .iter()
         .map(|(k, n)| {

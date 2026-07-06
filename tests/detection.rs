@@ -4,7 +4,7 @@
 //! Tokens are assembled from parts via `asm(..)` so no secret-shaped literal is
 //! ever committed to the repo (keeps secret scanners quiet on our own fixtures).
 
-use clipveil::detect::{has_secret, redact, scan};
+use clipveil::detect::{Scanner, has_secret, redact, scan};
 
 const A36: &str = "0123456789abcdefghijABCDEFGHIJ012345"; // 36 chars
 
@@ -182,6 +182,8 @@ fn negatives() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+// ── Existing parameterised tests ───────────────────────────────────────────
+
 #[test]
 fn positives_are_detected_and_redacted() {
     for (name, text, kind) in positives() {
@@ -252,4 +254,70 @@ fn large_input_still_detects() {
     let mut big = "some log line here\n".repeat(7000);
     big.push_str(&format!("ghp_{A36}\n"));
     assert!(has_secret(&big));
+}
+
+// ── Entropy-gate tests (Issue #5) ──────────────────────────────────────────
+
+#[test]
+fn high_entropy_generic_secret_still_detected() {
+    // Value has mixed case + digits, entropy well above 2.8
+    let text = "token=Xp2kQ9vLm5nR3sT8wY1aB6cD0eF4gH7j";
+    let found = scan(text);
+    assert!(
+        found.iter().any(|f| f.kind == "generic_secret"),
+        "high-entropy generic secret should be detected, got {found:?}"
+    );
+    assert!(redact(text).contains("[REDACTED:generic_secret]"));
+}
+
+#[test]
+fn low_entropy_generic_secret_is_filtered() {
+    // "password=password" — the value "password" has Shannon entropy ~2.75
+    let text = "password=password";
+    assert!(
+        !has_secret(text),
+        "low-entropy generic should NOT be detected"
+    );
+    assert_eq!(redact(text), text);
+}
+
+#[test]
+fn token_changeme_is_filtered() {
+    const VAL: &str = "changeme";
+    let text = format!("token={VAL}");
+    assert!(
+        !has_secret(&text),
+        "'token=changeme' should be filtered by entropy gate"
+    );
+    assert_eq!(redact(&text), text);
+}
+
+// ── Scanner tests ──────────────────────────────────────────────────────────
+
+#[test]
+fn scanner_default_passes_same_positives() {
+    let scanner = Scanner::default();
+    for (name, text, kind) in positives() {
+        let found = scanner.scan(&text);
+        assert!(
+            found.iter().any(|f| f.kind == kind),
+            "[{name}] scanner expected {kind}, got {found:?}"
+        );
+        assert!(
+            scanner.redact(&text).contains("[REDACTED:"),
+            "[{name}] scanner redact produced no marker"
+        );
+    }
+}
+
+#[test]
+fn scanner_default_clears_negatives() {
+    let scanner = Scanner::default();
+    for (name, text) in negatives() {
+        assert!(
+            !scanner.has_secret(text),
+            "[{name}] scanner false positive: {:?}",
+            scanner.scan(text)
+        );
+    }
 }

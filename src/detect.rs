@@ -7,6 +7,12 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+use crate::config::DetectionConfig;
+
+// ---------------------------------------------------------------------------
+// Finding
+// ---------------------------------------------------------------------------
+
 /// A single detected secret and its byte span within the scanned text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -14,6 +20,10 @@ pub struct Finding {
     pub start: usize,
     pub end: usize,
 }
+
+// ---------------------------------------------------------------------------
+// Built-in patterns
+// ---------------------------------------------------------------------------
 
 /// Ordered list of (label, pattern). Order matters only for readability;
 /// overlaps are resolved by span, not by list position.
@@ -84,6 +94,10 @@ static PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         .collect()
 });
 
+// ---------------------------------------------------------------------------
+// Rank helpers (overlap resolution)
+// ---------------------------------------------------------------------------
+
 /// Rank a kind by specificity. Specific vendor tokens beat the broad
 /// generic/`bearer` catch-alls when they overlap, so the dialog shows the most
 /// informative label.
@@ -105,12 +119,80 @@ fn better_label(cand: &Finding, cur: &Finding) -> bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shannon entropy (used for generic_secret gating)
+// ---------------------------------------------------------------------------
+
+/// Byte-level Shannon entropy. Returns 0.0 for empty input; max is ~8.0 for
+/// uniformly-distributed random bytes.
+fn shannon_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let mut counts = [0u32; 256];
+    for &b in data {
+        counts[b as usize] += 1;
+    }
+    let n = data.len() as f64;
+    let mut h = 0.0f64;
+    for &c in &counts {
+        if c == 0 {
+            continue;
+        }
+        let p = (c as f64) / n;
+        h -= p * p.log2();
+    }
+    h
+}
+
+/// Minimum Shannon entropy a generic-secret *value* must have to be flagged.
+///
+/// Empirically tuned:
+///   "password"         ≈ 2.75  → below threshold, rejected ✓
+///   "changeme"         ≈ 2.75  → below threshold, rejected ✓
+///   "SuperSecret123"   ≈ 3.18  → above threshold, flagged ✓
+///   "0123456789abcdef"  = 4.0   → above threshold, flagged ✓
+const ENTROPY_THRESHOLD: f64 = 2.8;
+
+/// Extract the value portion of a `generic_secret` match.
+///
+/// The regex captures `key=value` / `key: value` style assignments. This
+/// function strips the key, separator, and any surrounding quotes so only the
+/// actual secret value remains for entropy analysis.
+fn extract_generic_value(full_match: &str) -> Option<&str> {
+    let sep_pos = full_match.find(['=', ':'])?;
+    let value = full_match[sep_pos + 1..].trim();
+    // Strip surrounding quotes
+    let value = value.strip_prefix('"').unwrap_or(value);
+    let value = value.strip_suffix('"').unwrap_or(value);
+    let value = value.strip_prefix('\'').unwrap_or(value);
+    let value = value.strip_suffix('\'').unwrap_or(value);
+    let value = value.trim();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+// ---------------------------------------------------------------------------
+// Core scan logic (shared by free functions and Scanner)
+// ---------------------------------------------------------------------------
+
 /// Return every secret span in `text`, merged so no two spans overlap. Each
 /// merged span is labelled with the most specific kind it contains.
-pub fn scan(text: &str) -> Vec<Finding> {
+///
+/// This is the single implementation used by both the free function and
+/// `Scanner::scan`. The entropy gate for `generic_secret` is applied here.
+fn scan_with(patterns: &[(&'static str, Regex)], text: &str) -> Vec<Finding> {
     let mut raw: Vec<Finding> = Vec::new();
-    for (kind, re) in PATTERNS.iter() {
+    for (kind, re) in patterns {
         for m in re.find_iter(text) {
+            // Entropy gate: only for generic_secret matches
+            if *kind == "generic_secret" {
+                if let Some(value) = extract_generic_value(m.as_str()) {
+                    if shannon_entropy(value.as_bytes()) < ENTROPY_THRESHOLD {
+                        continue; // low-entropy value — skip
+                    }
+                }
+                // If we can't extract a value, keep the match (fail open).
+            }
             raw.push(Finding {
                 kind,
                 start: m.start(),
@@ -147,33 +229,34 @@ pub fn scan(text: &str) -> Vec<Finding> {
     merged
 }
 
+// ---------------------------------------------------------------------------
+// Free functions (backward-compatible — use built-in patterns)
+// ---------------------------------------------------------------------------
+
+/// Return every secret span in `text`.
+pub fn scan(text: &str) -> Vec<Finding> {
+    scan_with(&PATTERNS, text)
+}
+
 /// Cheap yes/no: does `text` contain anything secret-shaped?
+///
+/// Delegates to [`scan`] so the entropy gate for `generic_secret` is applied
+/// consistently — a low-entropy generic assignment returns `false`.
 pub fn has_secret(text: &str) -> bool {
-    PATTERNS.iter().any(|(_, re)| re.is_match(text))
+    !scan(text).is_empty()
 }
 
 /// Replace every detected secret with a `[REDACTED:<kind>]` marker.
 pub fn redact(text: &str) -> String {
-    let findings = scan(text);
-    if findings.is_empty() {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut cursor = 0usize;
-    for f in &findings {
-        out.push_str(&text[cursor..f.start]);
-        out.push_str(&format!("[REDACTED:{}]", f.kind));
-        cursor = f.end;
-    }
-    out.push_str(&text[cursor..]);
-    out
+    let findings = scan_with(&PATTERNS, text);
+    redact_from(text, &findings)
 }
 
 /// Distinct secret kinds present, with counts — used to describe findings
 /// in the paste dialog.
 pub fn summary(text: &str) -> Vec<(&'static str, usize)> {
     let mut counts: Vec<(&'static str, usize)> = Vec::new();
-    for f in scan(text) {
+    for f in scan_with(&PATTERNS, text) {
         if let Some(entry) = counts.iter_mut().find(|(k, _)| *k == f.kind) {
             entry.1 += 1;
         } else {
@@ -182,6 +265,120 @@ pub fn summary(text: &str) -> Vec<(&'static str, usize)> {
     }
     counts
 }
+
+// ---------------------------------------------------------------------------
+// Scanner (config-aware)
+// ---------------------------------------------------------------------------
+
+/// A configurable secret scanner.
+///
+/// Unlike the free functions (which always use the built-in pattern set),
+/// `Scanner` can be constructed from a [`DetectionConfig`], giving the
+/// caller control over which built-in kinds are disabled and what extra
+/// custom patterns are added.
+pub struct Scanner {
+    patterns: Vec<(&'static str, Regex)>,
+}
+
+impl Scanner {
+    /// Build a scanner from an optional detection configuration.
+    ///
+    /// * `None` or an empty config → behaves identically to the free functions.
+    /// * `disable` entries are matched by kind name. Built-in patterns whose
+    ///   label appears in `disable` are removed.
+    /// * `extra` entries are compiled as [`Regex`]; any that fail to compile
+    ///   are silently skipped.
+    pub fn new(config: Option<&DetectionConfig>) -> Self {
+        let mut patterns: Vec<(&'static str, Regex)> = PATTERNS.clone();
+
+        if let Some(cfg) = config {
+            // Remove disabled kinds
+            if !cfg.disable.is_empty() {
+                patterns.retain(|(kind, _)| !cfg.disable.iter().any(|d| d == kind));
+            }
+
+            // Add extra patterns
+            for (label, re_str) in &cfg.extra {
+                match Regex::new(re_str) {
+                    Ok(re) => {
+                        // Leak the label string to get a 'static str.
+                        // This is safe because Scanner lives for the process lifetime.
+                        let leaked: &'static str = Box::leak(label.clone().into_boxed_str());
+                        patterns.push((leaked, re));
+                    }
+                    Err(e) => {
+                        eprintln!("clipveil: warning: skipping custom pattern '{label}': {e}");
+                    }
+                }
+            }
+        }
+
+        Self { patterns }
+    }
+
+    /// Scan `text` using this scanner's effective pattern set.
+    pub fn scan(&self, text: &str) -> Vec<Finding> {
+        scan_with(&self.patterns, text)
+    }
+
+    /// Cheap yes/no: does `text` contain anything secret-shaped?
+    ///
+    /// Delegates to [`Self::scan`] so the entropy gate for `generic_secret` is
+    /// applied consistently.
+    pub fn has_secret(&self, text: &str) -> bool {
+        !self.scan(text).is_empty()
+    }
+
+    /// Replace every detected secret with a `[REDACTED:<kind>]` marker.
+    pub fn redact(&self, text: &str) -> String {
+        let findings = self.scan(text);
+        redact_from(text, &findings)
+    }
+
+    /// Distinct secret kinds present, with counts.
+    pub fn summary(&self, text: &str) -> Vec<(&'static str, usize)> {
+        let mut counts: Vec<(&'static str, usize)> = Vec::new();
+        for f in self.scan(text) {
+            if let Some(entry) = counts.iter_mut().find(|(k, _)| *k == f.kind) {
+                entry.1 += 1;
+            } else {
+                counts.push((f.kind, 1));
+            }
+        }
+        counts
+    }
+}
+
+impl Default for Scanner {
+    fn default() -> Self {
+        Self {
+            patterns: PATTERNS.clone(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared redaction helper
+// ---------------------------------------------------------------------------
+
+fn redact_from(text: &str, findings: &[Finding]) -> String {
+    if findings.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    for f in findings {
+        out.push_str(&text[cursor..f.start]);
+        out.push_str(&format!("[REDACTED:{}]", f.kind));
+        cursor = f.end;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -192,6 +389,114 @@ mod tests {
     fn asm(parts: &[&str]) -> String {
         parts.concat()
     }
+
+    // ── shannon_entropy ────────────────────────────────────────────────
+
+    #[test]
+    fn entropy_empty_is_zero() {
+        assert!((shannon_entropy(b"") - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn entropy_single_byte_is_zero() {
+        assert!((shannon_entropy(b"aaaa") - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn entropy_uniform_256_is_eight() {
+        let data: Vec<u8> = (0..=255).collect();
+        let h = shannon_entropy(&data);
+        assert!((h - 8.0).abs() < 0.01, "expected ~8.0, got {h}");
+    }
+
+    #[test]
+    fn entropy_mixed_card() {
+        // "SuperSecret123" — manually verified: should be ~3.18
+        let h = shannon_entropy(b"SuperSecret123");
+        assert!(h > 3.0 && h < 3.4, "expected ~3.18, got {h}");
+    }
+
+    #[test]
+    fn entropy_low_for_repetitive() {
+        // "password" should be well below threshold
+        let h = shannon_entropy(b"password");
+        assert!(h < ENTROPY_THRESHOLD, "expected < 2.8, got {h}");
+    }
+
+    #[test]
+    fn entropy_for_changeme_below_threshold() {
+        let h = shannon_entropy(b"changeme");
+        assert!(h < ENTROPY_THRESHOLD, "expected < 2.8, got {h}");
+    }
+
+    // ── extract_generic_value ──────────────────────────────────────────
+
+    #[test]
+    fn extracts_value_after_equals() {
+        assert_eq!(
+            extract_generic_value("password=SuperSecret123"),
+            Some("SuperSecret123")
+        );
+    }
+
+    #[test]
+    fn extracts_value_after_colon_with_space() {
+        assert_eq!(
+            extract_generic_value("api_key: 0123456789abcdef"),
+            Some("0123456789abcdef")
+        );
+    }
+
+    #[test]
+    fn strips_double_quotes() {
+        assert_eq!(
+            extract_generic_value("token=\"abc123def456\""),
+            Some("abc123def456")
+        );
+    }
+
+    #[test]
+    fn strips_single_quotes() {
+        assert_eq!(
+            extract_generic_value("password='s3cret!!'"),
+            Some("s3cret!!")
+        );
+    }
+
+    // ── entropy gate on generic_secret ─────────────────────────────────
+
+    #[test]
+    fn low_entropy_generic_is_filtered() {
+        // "password=password" — the value "password" has low entropy
+        let findings = scan("password=password");
+        assert!(
+            findings.is_empty(),
+            "low-entropy generic should be filtered, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn high_entropy_generic_is_still_detected() {
+        // Use a high-entropy value
+        let value = "Xp2kQ9vLm5nR3sT8wY1aB6cD0eF4gH7j";
+        let text = format!("token={value}");
+        let findings = scan(&text);
+        assert!(
+            findings.iter().any(|f| f.kind == "generic_secret"),
+            "high-entropy generic should be detected, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn token_changeme_is_filtered() {
+        let findings = scan("token=changeme");
+        assert!(
+            findings.is_empty(),
+            "token=changeme should be filtered, got {findings:?}"
+        );
+    }
+
+    // ── existing detection tests (unchanged) ───────────────────────────
 
     #[test]
     fn detects_github_classic_token() {
@@ -360,5 +665,107 @@ mod tests {
         );
         let s = summary(&t);
         assert_eq!(s.iter().find(|(k, _)| *k == "github_token").unwrap().1, 2);
+    }
+
+    // ── Scanner ────────────────────────────────────────────────────────
+
+    #[test]
+    fn scanner_default_matches_free_functions() {
+        let t = format!(
+            "export TOKEN={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
+        let scanner = Scanner::default();
+        assert!(scanner.has_secret(&t));
+        assert_eq!(scanner.scan(&t).len(), 1);
+    }
+
+    #[test]
+    fn scanner_disable_removes_kind() {
+        let cfg = DetectionConfig {
+            disable: vec!["github_token".into(), "generic_secret".into()],
+            ..Default::default()
+        };
+        let scanner = Scanner::new(Some(&cfg));
+        let t = format!(
+            "export TOKEN={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
+        // Both github_token and generic_secret are disabled, so no match.
+        assert!(!scanner.has_secret(&t));
+        assert!(scanner.scan(&t).is_empty());
+    }
+
+    #[test]
+    fn scanner_extra_adds_custom_pattern() {
+        let mut extra = std::collections::HashMap::new();
+        extra.insert("acme_key".into(), r"acme_[A-Za-z0-9]{32}".into());
+        let cfg = DetectionConfig {
+            extra,
+            ..Default::default()
+        };
+        let scanner = Scanner::new(Some(&cfg));
+        let t = format!(
+            "key={}",
+            asm(&["acme_", "0123456789abcdefghijABCDEFGHIJ01"])
+        );
+        assert!(scanner.has_secret(&t));
+        assert!(scanner.scan(&t).iter().any(|f| f.kind == "acme_key"));
+    }
+
+    #[test]
+    fn scanner_disable_and_extra_compose() {
+        let cfg = DetectionConfig {
+            disable: vec!["generic_secret".into()],
+            extra: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("mysecret".into(), r"mysecret_[A-Za-z0-9]{16}".into());
+                m
+            },
+            ..Default::default()
+        };
+        let scanner = Scanner::new(Some(&cfg));
+
+        // generic_secret should be disabled
+        assert!(!scanner.has_secret("password=SuperSecret123"));
+
+        // github_token should still work
+        let gh = format!(
+            "export T={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
+        assert!(scanner.has_secret(&gh));
+
+        // custom pattern should work
+        let custom = format!("key={}", asm(&["mysecret_", "abcdefghij01234567"]));
+        assert!(scanner.has_secret(&custom));
+    }
+
+    #[test]
+    fn scanner_bad_regex_is_skipped() {
+        let mut extra = std::collections::HashMap::new();
+        extra.insert("bad".into(), r"[invalid".into());
+        let cfg = DetectionConfig {
+            extra,
+            ..Default::default()
+        };
+        let scanner = Scanner::new(Some(&cfg));
+        // Should not have added the bad pattern; still works with built-ins
+        let t = format!(
+            "export TOKEN={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
+        assert!(scanner.has_secret(&t));
+    }
+
+    #[test]
+    fn scanner_none_config_is_same_as_default() {
+        let s1 = Scanner::new(None);
+        let s2 = Scanner::default();
+        let t = format!(
+            "export TOKEN={}",
+            asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
+        );
+        assert_eq!(s1.has_secret(&t), s2.has_secret(&t));
     }
 }
