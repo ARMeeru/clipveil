@@ -175,6 +175,18 @@ cargo clippy --all-features -- -D warnings
 cargo build --release
 ```
 
+For stable Accessibility permissions across local app rebuilds, create a
+self-signed **Code Signing** certificate named `clipveil-dev` in the login
+keychain, then build with:
+
+```sh
+export CODESIGN_IDENTITY=clipveil-dev
+./dist/build-app.sh
+```
+
+When `CODESIGN_IDENTITY` is unset, `build-app.sh` uses ad-hoc signing (`-`), as
+CI and release builds do.
+
 Tests live in `src/detect.rs` (unit), `tests/detection.rs` (detection corpus),
 and `tests/cli.rs` (end-to-end). See `QA_REPORT.md` for the coverage summary.
 
