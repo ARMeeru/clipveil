@@ -1,6 +1,7 @@
 //! clipveil — veil secrets in your clipboard before you paste them.
 
-use clipveil::detect;
+use clipveil::config;
+use clipveil::detect::Scanner;
 
 #[cfg(feature = "clipboard")]
 mod paste;
@@ -53,6 +54,13 @@ fn read_clipboard_or_hint() -> Result<String, String> {
 }
 
 /// `clipveil scan` — report findings; exit 1 if any secret is present.
+/// Build a detection scanner honoring the user's config (custom/disabled patterns).
+/// With no config file this is exactly the built-in pattern set.
+fn build_scanner() -> Scanner {
+    let cfg = config::load();
+    Scanner::new(Some(&cfg.detection))
+}
+
 fn cmd_scan() {
     let text = match read_input() {
         Ok(t) => t,
@@ -61,7 +69,7 @@ fn cmd_scan() {
             std::process::exit(2);
         }
     };
-    let summary = detect::summary(&text);
+    let summary = build_scanner().summary(&text);
     if summary.is_empty() {
         println!("clean — no secrets detected");
         return;
@@ -82,7 +90,7 @@ fn cmd_redact() {
             std::process::exit(2);
         }
     };
-    print!("{}", detect::redact(&text));
+    print!("{}", build_scanner().redact(&text));
 }
 
 #[cfg(feature = "agent")]

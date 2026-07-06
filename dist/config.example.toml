@@ -1,0 +1,33 @@
+# clipveil configuration (optional)
+# Place at: ~/.config/clipveil/config.toml
+#   or:    $XDG_CONFIG_HOME/clipveil/config.toml
+#
+# Every field is optional — missing values fall back to the defaults shown below.
+# An invalid file prints a warning to stderr and uses defaults; clipveil never
+# panics on bad config.
+
+# Global hotkey binding.  Format: [modifier+]...key
+# Recognised modifiers (case-insensitive): cmd/command/super, shift, ctrl/control, alt/option
+# Recognised keys: any single letter ("v"), "KeyV", "Escape", "F1"…F24, "Space", etc.
+hotkey = "cmd+shift+v"
+
+# Milliseconds to wait after pasting redacted content before restoring the
+# original clipboard value.
+paste_settle_ms = 250
+
+# Maximum milliseconds to block waiting for physical modifier keys to release
+# before giving up and sending the paste anyway.
+modifier_wait_timeout_ms = 1000
+
+# --- Detection tuning --------------------------------------------------------
+[detection]
+
+# Disable specific built-in pattern kinds by name.
+# Useful when a pattern triggers too many false positives in your workflow.
+# disable = ["generic_secret"]
+
+# Add extra custom patterns:  label = "regex"
+# These are appended to the effective set after any disabled patterns are removed.
+# [detection.extra]
+# acme_key = "acme_[A-Za-z0-9]{32}"
+# internal_id = "[A-Z]{3}-[0-9]{7}"

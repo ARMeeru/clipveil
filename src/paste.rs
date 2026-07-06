@@ -42,14 +42,19 @@ pub fn send_cmd_v() -> Result<(), String> {
 }
 
 /// Block until the physical modifier keys (Cmd/Shift/Option/Ctrl) are released,
-/// or a timeout elapses.
+/// or `timeout_ms` elapses.
 ///
 /// The global hotkey fires on key-*down*, so at that instant the user is still
 /// holding Cmd+Shift. Synthesizing Cmd+V while Shift is physically down yields a
 /// polluted chord (not a clean paste). We wait for the hardware state to clear
 /// first. Reads the HID-level flags so it reflects real keys, not synthetic ones.
 #[cfg(feature = "agent")]
-pub fn wait_for_modifiers_released() {
+pub fn wait_for_modifiers_released(timeout_ms: u64) {
+    wait_for_modifiers_released_impl(timeout_ms);
+}
+
+#[cfg(feature = "agent")]
+fn wait_for_modifiers_released_impl(timeout_ms: u64) {
     #[link(name = "CoreGraphics", kind = "framework")]
     unsafe extern "C" {
         fn CGEventSourceFlagsState(state_id: u32) -> u64;
@@ -65,8 +70,8 @@ pub fn wait_for_modifiers_released() {
         if flags & MOD_MASK == 0 {
             break;
         }
-        if start.elapsed() >= std::time::Duration::from_millis(1000) {
-            break; // give up after 1s; the user is genuinely holding a key
+        if start.elapsed() >= std::time::Duration::from_millis(timeout_ms) {
+            break; // give up after timeout
         }
         std::thread::sleep(std::time::Duration::from_millis(8));
     }

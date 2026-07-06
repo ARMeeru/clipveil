@@ -2,12 +2,21 @@
 
 use std::time::Duration;
 
-use crate::detect;
+use crate::detect::Scanner;
 
-// Give the target a short window to read the redacted clipboard. Pasteboard
-// change counts track writes, not reads, so a pathologically slow target that
-// reads after restoration remains a known, unsolved edge.
-const PASTE_SETTLE_DELAY: Duration = Duration::from_millis(250);
+// ── Timing (overridable via config) ────────────────────────────────────────
+
+/// Default settle delay: give the target a short window to read the redacted
+/// clipboard. Pasteboard change counts track writes, not reads, so a
+/// pathologically slow target that reads after restoration remains a known,
+/// unsolved edge.
+pub const DEFAULT_PASTE_SETTLE_MS: u64 = 250;
+
+/// Default modifier-wait timeout: how long we block waiting for physical
+/// modifier keys to release before giving up.
+pub const DEFAULT_MODIFIER_WAIT_TIMEOUT_MS: u64 = 1000;
+
+// ── Types ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteChoice {
@@ -25,31 +34,40 @@ pub enum Action {
     RestoreIfUnchanged(String),
 }
 
-pub fn needs_prompt(clipboard: &str) -> bool {
-    !clipboard.is_empty() && detect::has_secret(clipboard)
+// ── Logic ──────────────────────────────────────────────────────────────────
+
+pub fn needs_prompt(scanner: &Scanner, clipboard: &str) -> bool {
+    !clipboard.is_empty() && scanner.has_secret(clipboard)
 }
 
 pub fn should_restore(captured_change_count: isize, current_change_count: isize) -> bool {
     captured_change_count == current_change_count
 }
 
-pub fn plan(clipboard: &str, choice: PasteChoice) -> Vec<Action> {
-    if !needs_prompt(clipboard) {
+pub fn plan(
+    scanner: &Scanner,
+    clipboard: &str,
+    choice: PasteChoice,
+    settle_ms: u64,
+) -> Vec<Action> {
+    if !needs_prompt(scanner, clipboard) {
         return vec![Action::WaitForModifiersReleased, Action::SendPaste];
     }
 
     match choice {
         PasteChoice::Plain => vec![Action::WaitForModifiersReleased, Action::SendPaste],
         PasteChoice::Redacted => vec![
-            Action::SetClipboard(detect::redact(clipboard)),
+            Action::SetClipboard(scanner.redact(clipboard)),
             Action::WaitForModifiersReleased,
             Action::SendPaste,
-            Action::Wait(PASTE_SETTLE_DELAY),
+            Action::Wait(Duration::from_millis(settle_ms)),
             Action::RestoreIfUnchanged(clipboard.to_string()),
         ],
         PasteChoice::Cancel => Vec::new(),
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -69,10 +87,16 @@ mod tests {
     #[test]
     fn no_secret_pastes_without_prompt() {
         let clipboard = "ordinary clipboard text";
+        let scanner = Scanner::default();
 
-        assert!(!needs_prompt(clipboard));
+        assert!(!needs_prompt(&scanner, clipboard));
         assert_eq!(
-            plan(clipboard, PasteChoice::Cancel),
+            plan(
+                &scanner,
+                clipboard,
+                PasteChoice::Cancel,
+                DEFAULT_PASTE_SETTLE_MS
+            ),
             vec![Action::WaitForModifiersReleased, Action::SendPaste]
         );
     }
@@ -80,10 +104,16 @@ mod tests {
     #[test]
     fn plain_pastes_existing_clipboard() {
         let clipboard = secret_clipboard();
+        let scanner = Scanner::default();
 
-        assert!(needs_prompt(&clipboard));
+        assert!(needs_prompt(&scanner, &clipboard));
         assert_eq!(
-            plan(&clipboard, PasteChoice::Plain),
+            plan(
+                &scanner,
+                &clipboard,
+                PasteChoice::Plain,
+                DEFAULT_PASTE_SETTLE_MS
+            ),
             vec![Action::WaitForModifiersReleased, Action::SendPaste]
         );
     }
@@ -91,10 +121,16 @@ mod tests {
     #[test]
     fn redacted_replaces_pastes_and_restores_clipboard() {
         let clipboard = secret_clipboard();
+        let scanner = Scanner::default();
 
-        assert!(needs_prompt(&clipboard));
+        assert!(needs_prompt(&scanner, &clipboard));
         assert_eq!(
-            plan(&clipboard, PasteChoice::Redacted),
+            plan(
+                &scanner,
+                &clipboard,
+                PasteChoice::Redacted,
+                DEFAULT_PASTE_SETTLE_MS
+            ),
             vec![
                 Action::SetClipboard("prefix [REDACTED:github_token] suffix".to_string()),
                 Action::WaitForModifiersReleased,
@@ -108,9 +144,18 @@ mod tests {
     #[test]
     fn cancel_does_nothing() {
         let clipboard = secret_clipboard();
+        let scanner = Scanner::default();
 
-        assert!(needs_prompt(&clipboard));
-        assert_eq!(plan(&clipboard, PasteChoice::Cancel), Vec::new());
+        assert!(needs_prompt(&scanner, &clipboard));
+        assert_eq!(
+            plan(
+                &scanner,
+                &clipboard,
+                PasteChoice::Cancel,
+                DEFAULT_PASTE_SETTLE_MS
+            ),
+            Vec::new()
+        );
     }
 
     #[test]
@@ -121,5 +166,14 @@ mod tests {
     #[test]
     fn skips_restore_when_clipboard_changed() {
         assert!(!should_restore(42, 43));
+    }
+
+    #[test]
+    fn custom_settle_ms_is_respected() {
+        let clipboard = secret_clipboard();
+        let scanner = Scanner::default();
+        let actions = plan(&scanner, &clipboard, PasteChoice::Redacted, 500);
+        assert!(actions.contains(&Action::Wait(Duration::from_millis(500))));
+        assert!(!actions.contains(&Action::Wait(Duration::from_millis(250))));
     }
 }

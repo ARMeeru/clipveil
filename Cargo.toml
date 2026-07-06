@@ -16,6 +16,12 @@ path = "src/main.rs"
 [dependencies]
 regex = "1"
 once_cell = "1"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+# keyboard-types provides Modifiers + Code used by the agent hotkey stack;
+# we make it a direct dep so config parsing is pure and testable in both
+# feature lanes without pulling in the full global-hotkey crate.
+keyboard-types = "0.7"
 
 # Clipboard access (used by `scan` and the agent)
 arboard = { version = "3", optional = true, default-features = false }
@@ -32,6 +38,16 @@ core-foundation = { version = "0.10", optional = true }
 default = ["agent"]
 clipboard = ["dep:arboard"]
 agent = ["clipboard", "dep:rfd", "dep:enigo", "dep:global-hotkey", "dep:objc2", "dep:objc2-app-kit", "dep:core-foundation"]
+
+# ── Dependency notes ─────────────────────────────────────────────────────────
+# macOS (the only supported agent target) has zero duplicate crate versions in
+# the tree. Cross-platform duplicates (windows-sys 0.59/0.60/0.61, windows-link
+# 0.1/0.2, windows-targets 0.52/0.53) exist only for non-macOS targets and are
+# blocked by:
+#   • global-hotkey 0.8  → pins windows-sys 0.59
+#   • arboard 3          → pins windows-sys 0.60
+#   • rfd 0.17 / enigo   → pins windows-sys 0.61
+# Revisit when upstream crates unify their Windows API dependencies.
 
 [profile.release]
 opt-level = "z"
