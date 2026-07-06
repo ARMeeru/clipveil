@@ -209,7 +209,13 @@ fn hotkey_desc(mods: Modifiers, code: Code) -> String {
     if mods.contains(Modifiers::ALT) {
         parts.push("Opt");
     }
-    let key_str = format!("{code:?}");
+    // keyboard-types Debug gives e.g. "KeyV"/"Digit1"; show "V"/"1".
+    let raw = format!("{code:?}");
+    let key_str = raw
+        .strip_prefix("Key")
+        .or_else(|| raw.strip_prefix("Digit"))
+        .unwrap_or(raw.as_str())
+        .to_string();
     parts.push(&key_str);
     parts.join("+")
 }
