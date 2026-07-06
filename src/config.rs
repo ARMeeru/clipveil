@@ -115,13 +115,10 @@ pub fn parse_hotkey(s: &str) -> Result<(Modifiers, Code), String> {
 /// `keyboard-types` expects exact case-sensitive variant names (e.g. `"KeyV"`,
 /// `"Escape"`). Users write `"v"`, `"V"`, `"escape"` — this bridges the gap.
 fn normalize_key(raw: &str) -> String {
-    // Single letter → "Key<UPPER>"
-    if raw.len() == 1 {
-        if let Some(c) = raw.chars().next() {
-            if c.is_ascii_alphabetic() {
-                return format!("Key{}", c.to_ascii_uppercase());
-            }
-        }
+    // Single ASCII letter → "Key<UPPER>"
+    if raw.len() == 1 && raw.as_bytes()[0].is_ascii_alphabetic() {
+        let upper = raw.as_bytes()[0].to_ascii_uppercase() as char;
+        return format!("Key{upper}");
     }
     // Common aliases (lowercase → PascalCase variant name)
     let candidate = match raw.to_lowercase().as_str() {

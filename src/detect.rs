@@ -184,14 +184,13 @@ fn scan_with(patterns: &[(&'static str, Regex)], text: &str) -> Vec<Finding> {
     let mut raw: Vec<Finding> = Vec::new();
     for (kind, re) in patterns {
         for m in re.find_iter(text) {
-            // Entropy gate: only for generic_secret matches
-            if *kind == "generic_secret" {
-                if let Some(value) = extract_generic_value(m.as_str()) {
-                    if shannon_entropy(value.as_bytes()) < ENTROPY_THRESHOLD {
-                        continue; // low-entropy value — skip
-                    }
-                }
-                // If we can't extract a value, keep the match (fail open).
+            // Entropy gate: skip only low-entropy generic_secret matches.
+            // If we can't extract a value, keep the match (fail open).
+            if *kind == "generic_secret"
+                && extract_generic_value(m.as_str())
+                    .is_some_and(|value| shannon_entropy(value.as_bytes()) < ENTROPY_THRESHOLD)
+            {
+                continue;
             }
             raw.push(Finding {
                 kind,
