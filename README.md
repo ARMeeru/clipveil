@@ -190,6 +190,9 @@ CI and release builds do.
 Tests live in `src/detect.rs` (unit), `tests/detection.rs` (detection corpus),
 and `tests/cli.rs` (end-to-end). See `QA_REPORT.md` for the coverage summary.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the build/test/PR workflow and
+[ARCHITECTURE.md](ARCHITECTURE.md) for a design overview.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
