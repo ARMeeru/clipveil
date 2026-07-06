@@ -115,6 +115,9 @@ fn handle_smart_paste() {
 
 /// Execute a side-effect-free plan against the macOS clipboard and input APIs.
 fn execute(actions: Vec<Action>) {
+    use objc2_app_kit::NSPasteboard;
+
+    let mut redacted_change_count = None;
     for action in actions {
         match action {
             Action::WaitForModifiersReleased => paste::wait_for_modifiers_released(),
@@ -122,13 +125,19 @@ fn execute(actions: Vec<Action>) {
                 if paste::write_clipboard(&text).is_err() {
                     return;
                 }
+                redacted_change_count = Some(NSPasteboard::generalPasteboard().changeCount());
             }
             Action::SendPaste => {
                 let _ = paste::send_cmd_v();
             }
             Action::Wait(delay) => thread::sleep(delay),
-            Action::Restore(original) => {
-                let _ = paste::write_clipboard(&original);
+            Action::RestoreIfUnchanged(original) => {
+                let current_change_count = NSPasteboard::generalPasteboard().changeCount();
+                if redacted_change_count.is_some_and(|captured| {
+                    agent_plan::should_restore(captured, current_change_count)
+                }) {
+                    let _ = paste::write_clipboard(&original);
+                }
             }
         }
     }

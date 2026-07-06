@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use crate::detect;
 
-const RESTORE_DELAY: Duration = Duration::from_millis(250);
+// Give the target a short window to read the redacted clipboard. Pasteboard
+// change counts track writes, not reads, so a pathologically slow target that
+// reads after restoration remains a known, unsolved edge.
+const PASTE_SETTLE_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteChoice {
@@ -19,11 +22,15 @@ pub enum Action {
     SetClipboard(String),
     SendPaste,
     Wait(Duration),
-    Restore(String),
+    RestoreIfUnchanged(String),
 }
 
 pub fn needs_prompt(clipboard: &str) -> bool {
     !clipboard.is_empty() && detect::has_secret(clipboard)
+}
+
+pub fn should_restore(captured_change_count: isize, current_change_count: isize) -> bool {
+    captured_change_count == current_change_count
 }
 
 pub fn plan(clipboard: &str, choice: PasteChoice) -> Vec<Action> {
@@ -37,8 +44,8 @@ pub fn plan(clipboard: &str, choice: PasteChoice) -> Vec<Action> {
             Action::SetClipboard(detect::redact(clipboard)),
             Action::WaitForModifiersReleased,
             Action::SendPaste,
-            Action::Wait(RESTORE_DELAY),
-            Action::Restore(clipboard.to_string()),
+            Action::Wait(PASTE_SETTLE_DELAY),
+            Action::RestoreIfUnchanged(clipboard.to_string()),
         ],
         PasteChoice::Cancel => Vec::new(),
     }
@@ -93,7 +100,7 @@ mod tests {
                 Action::WaitForModifiersReleased,
                 Action::SendPaste,
                 Action::Wait(Duration::from_millis(250)),
-                Action::Restore(clipboard),
+                Action::RestoreIfUnchanged(clipboard),
             ]
         );
     }
@@ -104,5 +111,15 @@ mod tests {
 
         assert!(needs_prompt(&clipboard));
         assert_eq!(plan(&clipboard, PasteChoice::Cancel), Vec::new());
+    }
+
+    #[test]
+    fn restores_when_clipboard_is_unchanged() {
+        assert!(should_restore(42, 42));
+    }
+
+    #[test]
+    fn skips_restore_when_clipboard_changed() {
+        assert!(!should_restore(42, 43));
     }
 }
