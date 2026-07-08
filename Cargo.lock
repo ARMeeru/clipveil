@@ -88,7 +88,6 @@ dependencies = [
  "keyboard-types",
  "objc2",
  "objc2-app-kit",
- "once_cell",
  "regex",
  "rfd",
  "serde",

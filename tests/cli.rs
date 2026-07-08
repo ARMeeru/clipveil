@@ -56,10 +56,6 @@ fn redact_replaces_secret_on_stdout() {
     );
     assert_eq!(code, 0);
     assert!(out.contains("[REDACTED:"), "redact output: {out}");
-    assert!(
-        out.contains("[REDACTED:"),
-        "expected redaction marker: {out}"
-    );
 }
 
 #[test]

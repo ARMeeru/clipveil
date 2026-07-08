@@ -73,6 +73,10 @@ rebuilds. CI and releases stay ad-hoc (unset `CODESIGN_IDENTITY`).
   from parts with the `asm(&[...])` helper. GitHub push-protection will block
   real-looking tokens, and it's the exact anti-pattern this tool exists to
   prevent.
+- Engineering conventions — commit format, squash-merge, and the `ponytail:`
+  rule for marking intentional simplifications with their ceiling and upgrade
+  path — live in [CLAUDE.md](CLAUDE.md), followed by both AI coding agents and
+  human contributors.
 
 ## Security
 
