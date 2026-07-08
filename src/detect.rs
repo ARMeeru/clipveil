@@ -4,8 +4,8 @@
 //! fully unit-tested and the part that actually keeps your tokens out of an
 //! LLM prompt. Everything else in clipveil is plumbing around this module.
 
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 use crate::config::DetectionConfig;
 
@@ -27,7 +27,7 @@ pub struct Finding {
 
 /// Ordered list of (label, pattern). Order matters only for readability;
 /// overlaps are resolved by span, not by list position.
-static PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+static PATTERNS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     let raw: &[(&'static str, &str)] = &[
         // Private key blocks — redact the WHOLE block, header to footer.
         (
@@ -152,6 +152,9 @@ fn shannon_entropy(data: &[u8]) -> f64 {
 ///   "changeme"         ≈ 2.75  → below threshold, rejected ✓
 ///   "SuperSecret123"   ≈ 3.18  → above threshold, flagged ✓
 ///   "0123456789abcdef"  = 4.0   → above threshold, flagged ✓
+///
+/// ponytail: ceiling — one global f64 threshold. Upgrade path: per-kind
+/// thresholds or a calibrated model if a vendor token slips past this gate.
 const ENTROPY_THRESHOLD: f64 = 2.8;
 
 /// Extract the value portion of a `generic_secret` match.
@@ -251,20 +254,6 @@ pub fn redact(text: &str) -> String {
     redact_from(text, &findings)
 }
 
-/// Distinct secret kinds present, with counts — used to describe findings
-/// in the paste dialog.
-pub fn summary(text: &str) -> Vec<(&'static str, usize)> {
-    let mut counts: Vec<(&'static str, usize)> = Vec::new();
-    for f in scan_with(&PATTERNS, text) {
-        if let Some(entry) = counts.iter_mut().find(|(k, _)| *k == f.kind) {
-            entry.1 += 1;
-        } else {
-            counts.push((f.kind, 1));
-        }
-    }
-    counts
-}
-
 // ---------------------------------------------------------------------------
 // Scanner (config-aware)
 // ---------------------------------------------------------------------------
@@ -300,8 +289,10 @@ impl Scanner {
             for (label, re_str) in &cfg.extra {
                 match Regex::new(re_str) {
                     Ok(re) => {
-                        // Leak the label string to get a 'static str.
-                        // This is safe because Scanner lives for the process lifetime.
+                        // ponytail: ceiling — Scanner owns 'static labels via leak;
+                        // safe because both call sites build one Scanner per process.
+                        // Upgrade path: swap Finding.kind to Cow<'static, str> if a
+                        // long-lived caller ever builds many Scanners.
                         let leaked: &'static str = Box::leak(label.clone().into_boxed_str());
                         patterns.push((leaked, re));
                     }
@@ -335,6 +326,8 @@ impl Scanner {
     }
 
     /// Distinct secret kinds present, with counts.
+    /// ponytail: ceiling — O(kinds²) linear scan; kinds stays tiny in practice.
+    /// Upgrade path: HashMap<&'static str, usize> if kind cardinality ever grows.
     pub fn summary(&self, text: &str) -> Vec<(&'static str, usize)> {
         let mut counts: Vec<(&'static str, usize)> = Vec::new();
         for f in self.scan(text) {
@@ -350,9 +343,7 @@ impl Scanner {
 
 impl Default for Scanner {
     fn default() -> Self {
-        Self {
-            patterns: PATTERNS.clone(),
-        }
+        Self::new(None)
     }
 }
 
@@ -662,7 +653,7 @@ mod tests {
             asm(&["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"]),
             asm(&["ghp_", "zyxwvutsrqponmlkjihgfedcba9876543210"])
         );
-        let s = summary(&t);
+        let s = Scanner::default().summary(&t);
         assert_eq!(s.iter().find(|(k, _)| *k == "github_token").unwrap().1, 2);
     }
 

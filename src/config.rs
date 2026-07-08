@@ -146,11 +146,6 @@ fn normalize_key(raw: &str) -> String {
         other => {
             // Try PascalCase: "keyv" → "KeyV", "f1" → "F1"
             let pascal = pascal_case(other);
-            // Also try "Key" + uppercase first letter for things like "keyv"
-            if pascal.starts_with("Key") || pascal.starts_with('F') && pascal.len() <= 4 {
-                return pascal;
-            }
-            // Fall through: return as-is and let from_str try it
             return pascal;
         }
     };
