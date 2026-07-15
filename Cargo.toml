@@ -20,7 +20,7 @@ serde = { version = "1", features = ["derive"] }
 # keyboard-types provides Modifiers + Code used by the agent hotkey stack;
 # we make it a direct dep so config parsing is pure and testable in both
 # feature lanes without pulling in the full global-hotkey crate.
-keyboard-types = "0.7"
+keyboard-types = "0.8"
 
 # Clipboard access (used by `scan` and the agent)
 arboard = { version = "3", optional = true, default-features = false }
