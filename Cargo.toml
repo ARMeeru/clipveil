@@ -1,6 +1,6 @@
 [package]
 name = "clipveil"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A tiny macOS agent that veils secrets in your clipboard before you paste them."
 license = "MIT"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 regex = "1"
-toml = "0.8"
+toml = "1.1"
 serde = { version = "1", features = ["derive"] }
 # keyboard-types provides Modifiers + Code used by the agent hotkey stack;
 # we make it a direct dep so config parsing is pure and testable in both
