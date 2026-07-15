@@ -11,8 +11,10 @@
 # Recognised keys: any single letter ("v"), "KeyV", "Escape", "F1"…F24, "Space", etc.
 hotkey = "cmd+shift+v"
 
-# Milliseconds to wait after pasting redacted content before restoring the
-# original clipboard value.
+# Settle delay in milliseconds, used twice by prompted pastes: before the
+# synthetic Cmd+V (the dialog just closed; the target app needs a beat to regain
+# focus) and, for redacted pastes, after it (before restoring the original
+# clipboard value).
 paste_settle_ms = 250
 
 # Maximum milliseconds to block waiting for physical modifier keys to release

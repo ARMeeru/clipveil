@@ -1,4 +1,4 @@
-# clipveil QA Report — v0.1.1 (2026-07-06)
+# clipveil QA Report — v0.1.2 (2026-07-15)
 
 All checks are versioned in the repo and reproducible with a single command
 (and run in both feature lanes — full agent and pure library):
@@ -30,6 +30,18 @@ cargo test --no-default-features  # pure library only
 - **Boundary spans** — secrets at the very start and end of input.
 - **Overlap** — a `Bearer` + JWT overlap collapses to a single redaction span.
 - **Large input** — a token in a multi-thousand-line log is still found.
+
+## New in 0.1.2
+
+- **Focus-settle before prompted pastes** (`agent_plan.rs`): both prompted plans
+  (Plain and Redacted) now assert a `Wait(paste_settle_ms)` **before**
+  `SendPaste` — the regression that made Paste Plain beep instead of pasting is
+  locked down by the exact-plan tests. Verified live on macOS 26: both dialog
+  buttons paste correctly and the redacted path still restores the original.
+- **Dependency bumps** (`regex` 1.13, `toml` 1.1): full suite passes in both
+  feature lanes after the `toml` 0.8 → 1.1 major bump; config parsing, fallback,
+  and hotkey tests are unchanged. `cargo tree -d` confirms zero duplicate crate
+  versions on macOS.
 
 ## New in 0.1.1
 

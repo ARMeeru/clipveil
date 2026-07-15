@@ -40,7 +40,9 @@ Then grant **System Settings → Privacy & Security → Accessibility → clipve
 ### Stable dev signing (skip the re-grant treadmill)
 
 Ad-hoc signing changes the code hash every rebuild, so macOS asks you to
-re-grant Accessibility each time. Create a self-signed **Code Signing**
+re-grant Accessibility each time — and on macOS 26 (Tahoe) manually adding an
+ad-hoc-signed bundle to Accessibility can fail *silently* (the fingerprint
+prompt succeeds, the entry never appears). Create a self-signed **Code Signing**
 certificate named `clipveil-dev` in your login keychain (Keychain Access →
 Certificate Assistant → Create a Certificate, type *Code Signing*), then:
 

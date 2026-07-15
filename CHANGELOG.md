@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-15
+
+### Fixed
+- **Paste Plain after the dialog did nothing but beep.** macOS re-activates the
+  target app asynchronously after the chooser closes; the Plain path pasted
+  before focus landed, so the synthetic Cmd+V had no responder. Both prompted
+  paths now wait `paste_settle_ms` for focus to settle before pasting (the
+  Redacted path previously survived only by the incidental latency of its
+  pasteboard write).
+
+### Changed
+- Dependencies: `regex` 1.12.4 → 1.13.0, `toml` 0.8 → 1.1 (still zero duplicate
+  crate versions on macOS). `keyboard-types` stays on 0.7 until `global-hotkey`
+  moves to 0.8 — bumping it alone splits the tree into two incompatible versions.
+- Docs: on macOS 26 (Tahoe), manually adding an **ad-hoc-signed** bundle to
+  Accessibility fails *silently* (authentication succeeds, the entry never
+  appears). README/CONTRIBUTING now steer local builds to the stable
+  `CODESIGN_IDENTITY` certificate, which also survives rebuilds.
+
+[0.1.2]: https://github.com/ARMeeru/clipveil/releases/tag/v0.1.2
+
 ## [0.1.1] - 2026-07-06
 
 ### Added

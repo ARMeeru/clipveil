@@ -52,7 +52,10 @@ Cmd+Shift+V ─▶ read clipboard ─▶ needs_prompt?
 
 `plan()` returns an ordered, side-effect-free list of `Action`s
 (`WaitForModifiersReleased`, `SetClipboard`, `SendPaste`, `Wait`,
-`RestoreIfUnchanged`). The executor runs them. After a redacted paste, the
+`RestoreIfUnchanged`). The executor runs them. Both prompted plans `Wait`
+`paste_settle_ms` **before** `SendPaste`: the dialog has just closed and macOS
+re-activates the target app asynchronously — pasting earlier leaves the
+synthetic Cmd+V with no responder (error beep). After a redacted paste, the
 original is restored **only if** the pasteboard `changeCount` is unchanged since
 the redacted write — so a newer copy is never clobbered and the secret is never
 resurrected over it. (`changeCount` tracks writes, not reads, so a pathologically

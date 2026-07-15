@@ -61,11 +61,19 @@ is silently dropped by macOS.
 clipveil checks this at startup and prints a warning if the permission is
 missing, so you won't be left guessing why a paste didn't land.
 
-**Note on ad-hoc signing:** the bundle is ad-hoc signed, so each rebuild gets a
-new code hash and macOS treats it as a new identity — you'll need to re-grant
-Accessibility after rebuilding. For an install-once setup this is a one-time
-step. If you iterate often, sign with a stable self-signed code-signing
-certificate so grants persist across rebuilds.
+**Note on ad-hoc signing:** the bundle is ad-hoc signed by default, so each
+rebuild gets a new code hash and macOS treats it as a new identity — you'll
+need to re-grant Accessibility after rebuilding. Worse, on **macOS 26 (Tahoe)**
+adding an ad-hoc-signed app to Accessibility can fail *silently*: you
+authenticate, and the app never appears in the list. Sign with a stable
+self-signed code-signing certificate instead — grants then persist across
+rebuilds and the Accessibility add sticks (see
+[CONTRIBUTING.md](CONTRIBUTING.md) → *Stable dev signing*).
+
+**If the Accessibility add still fails silently:** check for a second copy of
+`clipveil.app` under another user account's home. Duplicate bundle IDs with
+mismatched signatures make `tccd` drop the entry without any error. Delete the
+stale copy, run `tccutil reset Accessibility engineer.sqa.clipveil`, and re-add.
 
 ## Usage
 
